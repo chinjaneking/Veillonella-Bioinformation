@@ -1,0 +1,410 @@
+"""
+Snakefile - Veillonella 发表级比较基因组学分析流程
+版本: 2.0
+
+工作流程：
+1. 数据下载与QC (NCBI datasets + CheckM2)
+2. ANI分析 (fastANI) - 物种边界
+3. 基因组注释 (Prokka)
+4. 泛基因组分析 (Panaroo)
+5. 泛基因组统计 (开放/闭合判定)
+6. 系统发育树构建 (IQ-TREE)
+7. 功能注释 (eggNOG-mapper)
+8. 可视化 (R/Python)
+9. 补充材料生成
+
+作者: [Your Name]
+日期: 2026-03-15
+"""
+
+import os
+import pandas as pd
+from pathlib import Path
+
+configfile: "config_paper.yaml"
+
+# 动态获取通过QC的样本列表
+def get_qc_passed_samples():
+    """从QC报告中获取通过质量控制的样本"""
+    qc_file = Path("results/qc/qc_report.csv")
+    if qc_file.exists():
+        df = pd.read_csv(qc_file)
+        passed = df[df['Pass_QC']]['Name'].tolist()
+        return passed
+    return []
+
+# 获取样本列表（下载后动态更新）
+def get_samples():
+    """从data/genomes目录获取样本列表"""
+    genomes_dir = Path("data/genomes_qc")
+    if genomes_dir.exists():
+        return sorted([f.stem for f in genomes_dir.glob("*.fna")])
+    # 回退到原始目录
+    genomes_dir = Path("data/genomes")
+    if genomes_dir.exists():
+        return sorted([f.stem for f in genomes_dir.glob("*.fna")])
+    return []
+
+SAMPLES = get_samples()
+
+# 默认规则
+rule all:
+    input:
+        # QC结果
+        "results/qc/qc_report.csv",
+        # ANI结果
+        "results/ani/ani_matrix.csv",
+        "results/ani/species_clusters.csv",
+        # 泛基因组结果
+        "results/pangenome/gene_presence_absence.csv",
+        "results/pangenome/pangenome_statistics.json",
+        "results/pangenome/pangenome_accumulation_curve.csv",
+        # 系统发育树
+        "results/phylogeny/veillonella.treefile",
+        "results/phylogeny/veillonella_tree_annotated.pdf",
+        # 可视化
+        "figures/Figure1_Phylogeny.pdf",
+        "figures/Figure2_Pangenome.pdf",
+        "figures/Figure3_ANI_Heatmap.pdf",
+        # 补充材料
+        "supplementary/README.md",
+        "supplementary/Table_S1_Genome_Info.xlsx",
+        "supplementary/Table_S2_Pangenome_Matrix.xlsx"
+
+# ========================================
+# 阶段 1: 数据下载
+# ========================================
+rule download_genomes:
+    output:
+        zip="data/genomes/raw_datasets.zip",
+        report="data/genomes/assembly_data_report.json"
+    params:
+        max_genomes=config['download']['max_genomes']
+    shell:
+        """
+        echo "=== 下载韦荣氏菌属基因组 (n={params.max_genomes}) ==="
+        datasets download genome taxon Veillonella \
+            --assembly-level complete,chromosome,scaffold \
+            --include genome \
+            --filename {output.zip} \
+            --no-progressbar \
+            --limit {params.max_genomes}
+
+        echo "=== 解压并提取 .fna 文件 ==="
+        python -c "import zipfile; z = zipfile.ZipFile('{output.zip}'); z.extractall('data/genomes/temp')"
+
+        python scripts/01_download_genomes.py data/genomes/temp data/genomes
+
+        echo "=== 清理临时文件 ==="
+        rm -rf data/genomes/temp
+        rm -f {output.zip}
+        """
+
+# ========================================
+# 阶段 2: 质量控制 (QC) - 新增
+# ========================================
+rule qc_checkm2:
+    input:
+        "data/genomes"
+    output:
+        "results/qc/qc_report.csv",
+        "results/qc/passed_qc_genomes.txt"
+    params:
+        completeness=config['qc']['completeness_threshold'],
+        contamination=config['qc']['contamination_threshold'],
+        threads=config['qc']['threads']
+    threads: config['qc']['threads']
+    log:
+        "results/qc/checkm2.log"
+    shell:
+        """
+        echo "=== 运行 CheckM2 质量评估 ==="
+        python scripts/qc_checkm.py \
+            --input {input} \
+            --output results/qc \
+            --completeness {params.completeness} \
+            --contamination {params.contamination} \
+            --threads {threads} \
+            2> {log}
+
+        echo "=== 复制通过QC的基因组 ==="
+        mkdir -p data/genomes_qc
+        for genome in $(cat results/qc/passed_qc_genomes.txt); do
+            if [ -f "data/genomes/${genome}.fna" ]; then
+                cp "data/genomes/${genome}.fna" data/genomes_qc/
+                echo "  复制: ${genome}"
+            fi
+        done
+        """
+
+# ========================================
+# 阶段 3: ANI分析 (物种边界) - 新增
+# ========================================
+rule ani_analysis:
+    input:
+        "data/genomes_qc"
+    output:
+        matrix="results/ani/ani_matrix.csv",
+        clusters="results/ani/species_clusters.csv",
+        stats="results/ani/ani_statistics.json"
+    params:
+        threshold=config['ani']['species_boundary'],
+        threads=config['ani']['threads']
+    threads: config['ani']['threads']
+    log:
+        "results/ani/fastani.log"
+    shell:
+        """
+        echo "=== 运行 fastANI 分析 ==="
+        python scripts/ani_analysis.py \
+            --input {input} \
+            --output results/ani \
+            --species-threshold {params.threshold} \
+            --threads {threads} \
+            2> {log}
+        """
+
+rule plot_ani_heatmap:
+    input:
+        "results/ani/ani_matrix.csv"
+    output:
+        "results/ani/ani_heatmap_clustered.pdf",
+        "results/ani/ani_distribution.pdf"
+    shell:
+        """
+        echo "=== 绘制ANI热图 ==="
+        cd results/ani && Rscript plot_ani_heatmap.R
+        """
+
+# ========================================
+# 阶段 4: 基因组注释
+# ========================================
+rule prokka_annotate:
+    input:
+        "data/genomes_qc/{sample}.fna"
+    output:
+        gff="results/annotation/{sample}/annotation.gff",
+        faa="results/annotation/{sample}/annotation.faa",
+        fna="results/annotation/{sample}/annotation.fna"
+    threads: config['prokka']['threads']
+    log:
+        "results/annotation/{sample}/prokka.log"
+    shell:
+        """
+        export PERL5LIB=/opt/miniforge3/lib/perl5/site_perl/5.22.0:/opt/miniforge3/lib/perl5/5.22.0
+        export PATH=/opt/miniforge3/bin:$PATH
+
+        echo "=== 注释 {wildcards.sample} ==="
+        prokka {input} \
+            --outdir results/annotation/{wildcards.sample} \
+            --prefix annotation \
+            --kingdom {config[prokka][kingdom]} \
+            --cpus {threads} \
+            --force \
+            --quiet \
+            2> {log}
+
+        echo "=== 清理冗余文件 ==="
+        cd results/annotation/{wildcards.sample}/
+        rm -f *.ffn *.frn *.sqn *.err *.log *.tbl
+        """
+
+# ========================================
+# 阶段 5: 泛基因组分析
+# ========================================
+rule panaroo:
+    input:
+        expand("results/annotation/{sample}/annotation.gff", sample=SAMPLES)
+    output:
+        gpa="results/pangenome/gene_presence_absence.csv",
+        core="results/pangenome/core_gene_alignment.aln",
+        ref="results/pangenome/pan_genome_reference.fa"
+    params:
+        clean_mode=config['panaroo']['clean_mode'],
+        core_threshold=config['panaroo']['core_threshold']
+    threads: config['panaroo']['threads']
+    log:
+        "results/pangenome/panaroo.log"
+    shell:
+        """
+        echo "=== 运行 Panaroo 泛基因组分析 ==="
+        echo "样本数: {len(input)}"
+
+        # 创建文件列表
+        for f in {input}; do echo "$f"; done > /tmp/panaroo_gff_list.txt
+
+        panaroo \
+            --clean-mode {params.clean_mode} \
+            -a core \
+            --core-threshold {params.core_threshold} \
+            -i /tmp/panaroo_gff_list.txt \
+            -o results/pangenome \
+            -t {threads} \
+            2> {log}
+
+        echo "=== 清理临时文件 ==="
+        rm -f /tmp/panaroo_gff_list.txt
+        """
+
+# ========================================
+# 阶段 6: 泛基因组统计分析 - 新增
+# ========================================
+rule pangenome_statistics:
+    input:
+        "results/pangenome/gene_presence_absence.csv"
+    output:
+        curve="results/pangenome/pangenome_accumulation_curve.csv",
+        stats="results/pangenome/pangenome_statistics.json",
+        plot="results/pangenome/pangenome_statistics.pdf"
+    params:
+        iterations=config['panaroo']['statistics']['iterations']
+    shell:
+        """
+        echo "=== 计算泛基因组统计 ==="
+        python scripts/pangenome_statistics.py \
+            --input {input} \
+            --output results/pangenome \
+            --iterations {params.iterations}
+        """
+
+# ========================================
+# 阶段 7: 系统发育树构建
+# ========================================
+rule trim_alignment:
+    input:
+        "results/pangenome/core_gene_alignment.aln"
+    output:
+        "results/phylogeny/core_alignment_trimmed.aln"
+    params:
+        trim_method=config['phylogeny']['trim_method']
+    shell:
+        """
+        echo "=== 修剪核心基因比对 ==="
+        trimal \
+            -in {input} \
+            -{params.trim_method} \
+            -out {output}
+        """
+
+rule build_tree:
+    input:
+        "results/phylogeny/core_alignment_trimmed.aln"
+    output:
+        tree="results/phylogeny/veillonella.treefile",
+        log="results/phylogeny/veillonella.iqtree",
+        contree="results/phylogeny/veillonella.contree"
+    params:
+        model=config['phylogeny']['model'],
+        bootstrap=config['phylogeny']['bootstrap'],
+        threads=config['phylogeny']['threads']
+    threads: config['phylogeny']['threads']
+    shell:
+        """
+        echo "=== 构建最大似然树 ==="
+        iqtree \
+            -s {input} \
+            -m {params.model} \
+            -B {params.bootstrap} \
+            -T {threads} \
+            -pre results/phylogeny/veillonella \
+            -nt {threads} \
+            --safe
+
+        echo "=== 树构建完成 ==="
+        cat {output.tree}
+        """
+
+# ========================================
+# 阶段 8: 系统发育树美化 - 新增
+# ========================================
+rule annotate_tree:
+    input:
+        tree="results/phylogeny/veillonella.treefile",
+        clusters="results/ani/species_clusters.csv"
+    output:
+        "results/phylogeny/veillonella_tree_annotated.pdf",
+        "results/phylogeny/veillonella_tree_annotated.png"
+    shell:
+        """
+        echo "=== 美化系统发育树 ==="
+        Rscript scripts/plot_annotated_tree.R \
+            {input.tree} \
+            {input.clusters} \
+            results/phylogeny/veillonella_tree_annotated
+        """
+
+# ========================================
+# 阶段 9: 补充材料生成 - 新增
+# ========================================
+rule supplementary_materials:
+    input:
+        qc="results/qc/qc_report.csv",
+        ani_clusters="results/ani/species_clusters.csv",
+        panaroo="results/pangenome"
+    output:
+        readme="supplementary/README.md",
+        table_s1="supplementary/Table_S1_Genome_Info.xlsx",
+        table_s2="supplementary/Table_S2_Pangenome_Matrix.xlsx"
+    params:
+        genome_dir="data/genomes_qc"
+    shell:
+        """
+        echo "=== 生成补充材料 ==="
+        python scripts/generate_supplementary.py \
+            --output supplementary \
+            --genome-dir {params.genome_dir} \
+            --qc-file {input.qc} \
+            --ani-clusters {input.ani_clusters} \
+            --panaroo-dir {input.panaroo}
+        """
+
+# ========================================
+# 阶段 10: 期刊级图表生成
+# ========================================
+rule generate_figures:
+    input:
+        tree="results/phylogeny/veillonella_tree_annotated.pdf",
+        pan_stats="results/pangenome/pangenome_statistics.pdf",
+        ani_heatmap="results/ani/ani_heatmap_clustered.pdf"
+    output:
+        fig1="figures/Figure1_Phylogeny.pdf",
+        fig2="figures/Figure2_Pangenome.pdf",
+        fig3="figures/Figure3_ANI_Heatmap.pdf"
+    shell:
+        """
+        echo "=== 整理期刊级图表 ==="
+        mkdir -p figures
+
+        # 复制并重命名图表
+        cp {input.tree} {output.fig1}
+        cp {input.pan_stats} {output.fig2}
+        cp {input.ani_heatmap} {output.fig3}
+
+        echo "✓ 图表已保存到 figures/"
+        """
+
+# ========================================
+# 清理规则
+# ========================================
+rule clean:
+    shell:
+        """
+        echo "=== 清理分析结果 ==="
+        rm -rf results/
+        rm -rf data/genomes_qc/
+        rm -rf supplementary/
+        rm -rf figures/
+        echo "=== 完成 ==="
+        """
+
+rule clean_all:
+    shell:
+        """
+        echo "=== 清理所有数据 ==="
+        rm -rf results/
+        rm -rf data/genomes/
+        rm -rf data/genomes_qc/
+        rm -rf supplementary/
+        rm -rf figures/
+        echo "=== 完成 ==="
+        """

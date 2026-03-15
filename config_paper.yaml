@@ -1,0 +1,160 @@
+# Veillonella 比较基因组学分析流程 - 发表级配置
+# 版本: 2.0
+# 用途: 生成符合同行评议期刊标准的完整分析
+
+# ========== 数据下载参数 ==========
+download:
+  taxon: "Veillonella"
+  max_genomes: 100                    # 扩展样本量到100株
+  assembly_level: "all"               # 包含所有级别基因组
+  refseq_category: ["reference", "representative", "na"]  # 包含更多类别
+  outgroup: "Megasphaera elsdenii"
+
+  # 新增：质量预过滤（基于NCBI元数据）
+  quality_filter:
+    min_contig_n50: 10000
+    max_contamination: 10
+
+# ========== 质量控制参数（新增）==========
+qc:
+  tool: "checkm2"                     # CheckM2用于基因组质量评估
+  completeness_threshold: 90          # 最小完整性(%)
+  contamination_threshold: 5          # 最大污染(%)
+  threads: 8
+
+# ========== ANI分析参数（新增）==========
+ani:
+  tool: "fastani"
+  min_fraction: 0.2                   # 最小比对片段比例
+  threads: 8
+  # 物种边界阈值
+  species_boundary: 95                # ANI > 95%为同种
+  genus_boundary: 80                  # ANI > 80%为同属
+
+# ========== 注释参数 ==========
+prokka:
+  kingdom: "Bacteria"
+  threads: 4
+
+# 新增：功能注释
+eggnog:
+  database: "eggnog"                  # eggNOG数据库
+  evalue: 1e-5
+  threads: 8
+  # COG类别映射
+cog_categories:
+  D: "Cell cycle control, cell division"
+  M: "Cell wall/membrane/envelope biogenesis"
+  N: "Cell motility"
+  O: "Post-translational modification"
+  T: "Signal transduction"
+  U: "Intracellular trafficking"
+  V: "Defense mechanisms"
+  W: "Extracellular structures"
+  Y: "Nuclear structure"
+  Z: "Cytoskeleton"
+  A: "RNA processing and modification"
+  B: "Chromatin structure and dynamics"
+  J: "Translation, ribosomal structure"
+  K: "Transcription"
+  L: "Replication, recombination and repair"
+  C: "Energy production and conversion"
+  E: "Amino acid transport and metabolism"
+  F: "Nucleotide transport and metabolism"
+  G: "Carbohydrate transport and metabolism"
+  H: "Coenzyme transport and metabolism"
+  I: "Lipid transport and metabolism"
+  P: "Inorganic ion transport and metabolism"
+  Q: "Secondary metabolites biosynthesis"
+  R: "General function prediction only"
+  S: "Function unknown"
+
+# ========== 泛基因组参数 ==========
+panaroo:
+  clean_mode: "sensitive"
+  core_threshold: 0.95                # 核心基因阈值（95%菌株存在）
+  threads: 8
+  # 新增：统计参数
+  statistics:
+    iterations: 100                   # 重采样迭代次数
+    sample_sizes: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]  # 样本梯度
+
+# ========== 系统发育参数 ==========
+phylogeny:
+  trim_method: "automated1"
+  model: "MFP"                        # ModelFinder Plus
+  bootstrap: 1000                     # UFboot重复次数
+  bootstrap_type: "ufboot"            # 超快自举
+  threads: 8
+  # 新增：树美化参数
+  visualization:
+    branch_color_by: "species"        # 按物种着色分支
+    tip_label_size: 3
+    bootstrap_size: 2
+    show_scale: true
+
+# ========== 毒力因子与抗性基因（新增）==========
+virulence:
+  database: "vfdb"                    # 毒力因子数据库
+  min_identity: 80
+  min_coverage: 70
+
+resistance:
+  database: "card"                    # CARD抗性基因数据库
+  min_identity: 80
+  min_coverage: 70
+
+# ========== 代谢分析参数 ==========
+metabolism:
+  # KEGG通路分析
+  kegg_pathways:
+    - "map00010"                      # Glycolysis
+    - "map00020"                      # Citrate cycle
+    - "map00620"                      # Pyruvate metabolism
+    - "map00630"                      # Glyoxylate and dicarboxylate metabolism
+    - "map00561"                      # Glycerolipid metabolism
+
+  # 关键酶KO编号
+  target_enzymes:
+    # 糖酵解
+    pfk: "K00850"                     # 磷酸果糖激酶
+    pyk: "K00873"                     # 丙酮酸激酶
+    # 乳酸代谢
+    ldh: "K00016"                     # 乳酸脱氢酶
+    # 丙酸代谢
+    mcm: "K01847"                     # 甲基丙二酰辅酶A变位酶
+    pcb: "K01846"                     # 丙酰辅酶A羧化酶
+    # 其他
+    ack: "K00925"                     # 乙酸激酶
+    adh: "K00001"                     # 醇脱氢酶
+
+# ========== 输出文件 ==========
+output:
+  # 主要结果
+  tree: "results/phylogeny/veillonela.treefile"
+  core_tree: "results/phylogeny/core_gene_tree.pdf"
+  ani_matrix: "results/qc/ani_matrix.csv"
+  pan_stat_plot: "results/pangenome/pangenome_statistics.pdf"
+
+  # 补充材料
+  supplementary:
+    table_s1: "supplementary/Table_S1_Genome_Info.xlsx"
+    table_s2: "supplementary/Table_S2_Pangenome_Matrix.xlsx"
+    table_s3: "supplementary/Table_S3_Functional_Annotation.xlsx"
+    table_s4: "supplementary/Table_S4_Virulence_Genes.xlsx"
+    table_s5: "supplementary/Table_S5_Resistance_Genes.xlsx"
+
+  # 可视化
+  figures:
+    fig1: "figures/Figure1_Phylogeny.pdf"
+    fig2: "figures/Figure2_Pangenome.pdf"
+    fig3: "figures/Figure3_ANI_Heatmap.pdf"
+    fig4: "figures/Figure4_Metabolism.pdf"
+    fig5: "figures/Figure5_Virulence_Resistance.pdf"
+
+# ========== 报告参数 ==========
+report:
+  title: "Comparative Genomics and Pan-genome Analysis of Veillonella Species"
+  authors: "Your Name"
+  journal: "Frontiers in Microbiology"  # 目标期刊示例
+  template: "nature"                    # 图表风格

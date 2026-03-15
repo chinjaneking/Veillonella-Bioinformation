@@ -1,0 +1,38 @@
+# Conda 环境
+envs/
+.conda/
+
+# Snakemake 工作目录
+.snakemake/
+
+# 结果文件（可选，如果要纳入版本控制）
+# results/
+
+# 数据文件
+data/genomes/*.fna
+data/genomes/raw_datasets.zip
+data/genomes/assembly_data_report.json
+data/reference/
+
+# 临时文件
+*.tmp
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# R
+.Rhistory
+.Rproj.user/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db

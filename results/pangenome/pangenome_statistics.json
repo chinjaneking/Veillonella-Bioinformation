@@ -1,0 +1,28 @@
+{
+  "classification": {
+    "core": 1125,
+    "soft_core": 0,
+    "shell": 1049,
+    "cloud": 2282,
+    "unique": 1823,
+    "total": 4456
+  },
+  "models": {
+    "pan_genome_model": {
+      "type": "power_law",
+      "k": 1755.9011583837587,
+      "gamma": 0.33858114802288597,
+      "openness": "\u4e2d\u7b49\u5f00\u653e\u578b",
+      "predicted_n200": 10558.092022306759,
+      "predicted_n500": 14398.605335187784
+    },
+    "core_genome_model": {
+      "type": "exponential",
+      "a": 1049.6057469738316,
+      "b": 0.3931871017225251,
+      "omega": 1145.1133333333335
+    }
+  },
+  "n_samples": 15,
+  "total_genes": 4456
+}

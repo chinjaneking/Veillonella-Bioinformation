@@ -1,0 +1,110 @@
+# Veillonella 发表级分析流程 - Docker 镜像
+# 版本: 2.0
+# 包含：QC、ANI、泛基因组统计、美化可视化工具
+
+FROM ubuntu:22.04
+
+LABEL maintainer="Veillonella Project"
+LABEL description="Publication-ready Veillonella comparative genomics pipeline"
+LABEL version="2.0"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+ENV PATH="/opt/miniforge3/bin:$PATH"
+
+WORKDIR /app
+
+# 1. 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    wget curl bzip2 ca-certificates git tzdata unzip \
+    perl cpanminus \
+    libncurses5-dev libbz2-dev zlib1g-dev \
+    build-essential g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. 安装 Miniforge3
+RUN wget -q https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh \
+    && bash Miniforge3-Linux-x86_64.sh -b -p /opt/miniforge3 \
+    && rm Miniforge3-Linux-x86_64.sh
+
+# 3. 配置 conda
+RUN conda config --add channels bioconda \
+    && conda config --add channels conda-forge \
+    && conda config --set channel_priority flexible
+
+# 4. 安装 mamba
+RUN conda install -y mamba
+
+# 5. 安装核心生物信息学工具
+RUN mamba install -y \
+    python=3.10 \
+    snakemake \
+    pandas \
+    numpy \
+    scipy \
+    matplotlib \
+    seaborn \
+    openpyxl \
+    requests \
+    pyyaml \
+    && conda clean --all -y
+
+# 6. 安装基因组分析工具
+RUN mamba install -y \
+    prokka \
+    panaroo \
+    mafft \
+    trimal \
+    iqtree \
+    blast \
+    hmmer \
+    ncbi-datasets-cli \
+    && conda clean --all -y
+
+# 7. 修复 Prokka 版本比较 bug
+RUN sed -i "s/MINVER  => \"2.2\",/MINVER  => \"0.1\",  # patched/g" /opt/miniforge3/bin/prokka \
+    && sed -i "s/MINVER  => \"2.2\"/MINVER  => \"0.1\"  # patched/g" /opt/miniforge3/bin/prokka
+
+# 8. 安装 Perl XML 模块
+RUN mamba install -y perl-xml-simple perl-xml-parser && conda clean --all -y
+
+# 9. 安装 QC 工具 (使用CheckM v1.2.2替代CheckM2，兼容性更好)
+RUN mamba install -y checkm-genome=1.2.2 && conda clean --all -y
+
+# 10. 安装 ANI 工具 (fastANI)
+RUN mamba install -y fastani && conda clean --all -y
+
+# 11. 安装功能注释工具 (使用Prokka注释替代eggNOG-mapper，避免依赖问题)
+# eggNOG-mapper将单独在需要时通过其他方式安装
+RUN echo "eggNOG-mapper will be installed separately if needed"
+
+# 12. 安装 R 及基础包
+RUN mamba install -y \
+    r-base \
+    r-tidyverse \
+    r-ape \
+    r-readr \
+    r-remotes \
+    r-rcolorbrewer \
+    && conda clean --all -y
+
+# 13. 安装 R 生物信息学包
+RUN R -e "remotes::install_bioc('ggtree', ask=FALSE)" \
+    && R -e "install.packages('pheatmap', repos='https://cloud.r-project.org/', quiet=TRUE)" \
+    && R -e "install.packages('ggpubr', repos='https://cloud.r-project.org/', quiet=TRUE)"
+
+# 14. 创建项目目录结构
+RUN mkdir -p data/genomes data/genomes_qc data/reference \
+    results/annotation results/pangenome results/phylogeny results/metabolism results/qc results/ani \
+    figures supplementary scripts
+
+# 15. 复制项目文件
+COPY Snakefile_paper config_paper.yaml ./
+COPY scripts/ scripts/
+
+# 设置环境变量
+ENV PYTHONPATH=/app:$PYTHONPATH
+
+# 默认入口
+ENTRYPOINT ["snakemake"]
+CMD ["-s", "Snakefile_paper", "--cores", "4", "--use-conda"]

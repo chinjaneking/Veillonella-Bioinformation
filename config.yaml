@@ -1,0 +1,42 @@
+# Veillonella 分析流程配置文件
+
+# ========== 数据下载 ==========
+download:
+  taxon: "Veillonella"
+  assembly_level: "complete-genome"
+  refseq_category: ["reference", "representative"]
+  max_genomes: 20
+  outgroup: "Megasphaera elsdenii"
+
+# ========== 注释参数 ==========
+prokka:
+  kingdom: "Bacteria"
+  threads: 4
+
+# ========== 泛基因组参数 ==========
+panaroo:
+  clean_mode: "strict"
+  core_alignment: "core"
+  threads: 8
+
+# ========== 系统发育树参数 ==========
+phylogeny:
+  trim_method: "automated1"
+  model: "MFP"
+  bootstrap: 1000
+  threads: 8
+
+# ========== BLAST 参数 ==========
+blast:
+  evalue: 1e-5
+  qcov_hsp: 80
+  # 代谢酶 KO 编号
+  target_enzymes:
+    ldh: "K00016"
+    mcm: "K01847"
+
+# ========== 输出文件 ==========
+output:
+  tree: "results/phylogeny/veillonella.treefile"
+  matrix: "results/metabolism/metabolism_matrix.csv"
+  heatmap: "results/phylogeny/tree_heatmap.pdf"

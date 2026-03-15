@@ -1,0 +1,22 @@
+{
+  "version": "1.2",
+  "dbname": "pan_genome_db",
+  "dbtype": "Protein",
+  "db-version": 5,
+  "description": "results/pangenome/pan_genome_reference.fa",
+  "number-of-letters": 4188834,
+  "number-of-sequences": 4378,
+  "last-updated": "2026-03-05T20:15:00",
+  "number-of-volumes": 1,
+  "bytes-total": 4654341,
+  "bytes-to-cache": 4228365,
+  "files": [
+    "pan_genome_db.pdb",
+    "pan_genome_db.phr",
+    "pan_genome_db.pin",
+    "pan_genome_db.pot",
+    "pan_genome_db.psq",
+    "pan_genome_db.ptf",
+    "pan_genome_db.pto"
+  ]
+}
